@@ -299,13 +299,13 @@ def render_quiz():
             st.session_state.submitted[gid] = True
             correct_letter = st.session_state.correct_map.get(gid, "")
             if correct_letter and chosen_letter == correct_letter:
-                st.success(f"Hebat Sayang! Kamu pinter banget, jawaban kamu benar ✅ (Pilihan: {chosen_letter})")
+                st.success(f"✅ Hebat Sayang! Kamu pinter banget, jawaban kamu benar {chosen_letter})")
                 if gid not in st.session_state.scored:
                     st.session_state.score += 1
                     st.session_state.scored.add(gid)
             else:
                 if correct_letter in {"A", "B", "C", "D"}:
-                    st.error(f"Gapapa Sayang, ayo coba lagi ❌ (Kunci: {correct_letter})")
+                    st.error(f"❌ Gapapa Sayang! Ayo coba lagi, jawaban yang benar {correct_letter})")
                 else:
                     st.info("ℹ️ Kunci jawaban belum tersedia untuk soal ini.")
         else:
@@ -348,9 +348,9 @@ def render_results():
         q = df.iloc[gid]
         chosen = st.session_state.answers.get(gid, "")
         correct = st.session_state.correct_map.get(gid, "").upper()
-        status = ("Hebat Sayang! Kamu pinter banget, jawaban kamu benar ✅"
+        status = ("Correct ✅"
                   if correct and chosen == correct else
-                  ("Gapapa Sayang, ayo coba lagi ❌" if chosen and correct else
+                  ("Incorrect ❌" if chosen and correct else
                    ("No key ℹ️" if not correct else "Unanswered ⚠️")))
         rows.append({
             "No": q["No"],
