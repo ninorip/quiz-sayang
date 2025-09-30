@@ -336,8 +336,8 @@ def render_results():
         q = df.iloc[gid]
         chosen = st.session_state.answers.get(gid, "")
         correct = st.session_state.correct_map.get(gid, "").upper()
-        status = ("Correct ✅" if correct and chosen == correct else
-                  ("Incorrect ❌" if chosen and correct else
+        status = ("Hebat Sayang! Kamu pinter banget, jawaban kamu benar ✅" if correct and chosen == correct else
+                  ("Gapapa Sayang, ayo coba lagi ❌" if chosen and correct else
                    ("No key ℹ️" if not correct else "Unanswered ⚠️")))
         rows.append({
             "No": q["No"],
