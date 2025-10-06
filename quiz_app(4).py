@@ -17,15 +17,6 @@ OPTION_LETTERS = ["A", "B", "C", "D", "E"]  # Support up to A–E
 # ==================================
 # Helpers
 # ==================================
-def file_signature(base_name="questions"):
-    """MD5 hash of local questions file to bust cache when it changes."""
-    p = Path(base_name)
-    candidate = p.with_suffix(".csv") if p.with_suffix(".csv").exists() else p.with_suffix(".xlsx")
-    if not candidate.exists():
-        return "nofile"
-    return hashlib.md5(candidate.read_bytes()).hexdigest()
-
-
 def available_options_for_row(row) -> list:
     """Return the option letters that are non-empty for this row, in order."""
     return [L for L in OPTION_LETTERS if str(row.get(L, "")).strip() != ""]
@@ -63,26 +54,29 @@ def normalize_and_validate(df: pd.DataFrame) -> pd.DataFrame:
     return df[ordered + extras].reset_index(drop=True)
 
 
-# ==================================
-# Data Loading (remote + local fallback)
-# ==================================
 def _to_csv_url(u: str) -> str:
-    """Convert common Google Sheets view/public URLs into CSV export URL."""
+    """Leave 'published to web' CSV links alone; convert UI/view links to CSV export."""
     u = (u or "").strip()
-    if "docs.google.com/spreadsheets" not in u:
+    # Already a published CSV URL (contains output=csv) -> leave as-is
+    if "output=csv" in u:
         return u
-    m = re.search(r"/spreadsheets/d/([^/]+)/", u)
-    gid_match = re.search(r"[?#&]gid=(\d+)", u)
-    if m:
-        sheet_id = m.group(1)
-        gid = gid_match.group(1) if gid_match else "0"
-        return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
+    # Convert common view links to CSV export
+    if "docs.google.com/spreadsheets" in u:
+        m = re.search(r"/spreadsheets/d/([^/]+)/", u)
+        gid_match = re.search(r"[?#&]gid=(\d+)", u)
+        if m:
+            sheet_id = m.group(1)
+            gid = gid_match.group(1) if gid_match else "0"
+            return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
     return u
 
 
+# ==================================
+# Remote-only data loading
+# ==================================
 @st.cache_data(ttl=60)
 def load_questions_remote(url: str):
-    """Load from a published Google Sheets CSV URL. Auto-refresh every 60s. Robust parsing."""
+    """Load from Google Sheets CSV (published or export link). Auto-refresh every 60s."""
     csv_url = _to_csv_url(url)
 
     trials = [
@@ -102,76 +96,23 @@ def load_questions_remote(url: str):
         except Exception as e:
             last_err = e
 
-    st.error(
-        "Couldn't read the remote questions CSV.\n\n"
-        "Checklist:\n"
-        "1) Make the Google Sheet public (Anyone with the link: **Viewer**)\n"
-        "2) Use a valid CSV export URL (not the view/share link)\n"
-        "3) Ensure headers include: No, Question, A, B, C, D, (optional E), Correct\n\n"
-        f"Last error: {type(last_err).__name__}: {last_err}"
-    )
+    raise RuntimeError(f"Remote load failed. Resolved URL: {csv_url} • {type(last_err).__name__}: {last_err}")
+
+
+# ==================================
+# Load from remote (no local fallback)
+# ==================================
+REMOTE_URL = st.secrets.get("QUESTIONS_CSV_URL", "").strip()
+if not REMOTE_URL:
+    st.error("QUESTIONS_CSV_URL is not set in secrets. Add it under `.streamlit/secrets.toml`.")
     st.stop()
 
-
-@st.cache_data
-def load_questions_local(base_name: str = "questions", sig: str = ""):
-    """
-    Load from CSV (preferred) or XLSX (fallback) in repo root.
-    'sig' is a cache-buster derived from file_signature().
-    """
-    p = Path(base_name)
-    csv_path = p.with_suffix(".csv")
-    xlsx_path = p.with_suffix(".xlsx")
-
-    df = None
-    errors = []
-
-    if csv_path.exists():
-        trials = [
-            dict(encoding="utf-8-sig", sep=None, engine="python", on_bad_lines="skip"),
-            dict(encoding="utf-8", sep=None, engine="python", on_bad_lines="skip"),
-            dict(encoding="latin1", sep=None, engine="python", on_bad_lines="skip"),
-        ]
-        for t in trials:
-            try:
-                df = pd.read_csv(csv_path, dtype=str, **t)
-                break
-            except Exception as e:
-                errors.append(f"CSV read failed ({t}): {type(e).__name__}: {e}")
-
-    if df is None and xlsx_path.exists():
-        try:
-            df = pd.read_excel(xlsx_path, dtype=str)  # requires openpyxl if you use XLSX
-        except Exception as e:
-            errors.append(f"Excel read failed: {type(e).__name__}: {e}")
-
-    if df is None:
-        st.error(
-            "Couldn't load questions. Put **questions.csv** (preferred) or **questions.xlsx** in the repo root.\n\n"
-            "Required columns: No, Question, A, B, C, D, (optional E), Correct."
-            + ("\n\nErrors:\n- " + "\n- ".join(errors) if errors else "")
-        )
-        st.stop()
-
-    df = normalize_and_validate(df)
-    return df
-
-
-# Load from remote if configured, else local
-REMOTE_URL = st.secrets.get("QUESTIONS_CSV_URL", "").strip()
-if REMOTE_URL:
-    try:
-        df = load_questions_remote(REMOTE_URL)
-        DATA_SOURCE = "Google Sheets (live)"
-    except Exception:
-        # Optional: fallback to local if present
-        sig = file_signature("questions")
-        df = load_questions_local("questions", sig)
-        DATA_SOURCE = "Local file (fallback)"
-else:
-    sig = file_signature("questions")
-    df = load_questions_local("questions", sig)
-    DATA_SOURCE = "Local file"
+try:
+    df = load_questions_remote(REMOTE_URL)
+    DATA_SOURCE = "Google Sheets (live)"
+except Exception as e:
+    st.error(str(e))
+    st.stop()
 
 
 # ==================================
@@ -179,10 +120,7 @@ else:
 # ==================================
 with st.sidebar.expander("🧰 Data debug"):
     st.caption(f"Source: **{DATA_SOURCE}**")
-    if REMOTE_URL:
-        st.write("URL:", _to_csv_url(REMOTE_URL))
-    st.write("CWD:", os.getcwd())
-    st.write("Files:", os.listdir("."))
+    st.write("Resolved CSV URL:", _to_csv_url(REMOTE_URL))
     st.write("Rows:", len(df))
     if st.button("🔄 Reload questions (clear cache)"):
         st.cache_data.clear()
@@ -289,7 +227,7 @@ def status_for(local_idx: int):
 def render_home():
     total = len(df)
     st.title("📝 MCQ Quiz")
-    st.caption("Edit in Google Sheets or your repo; this app auto-refreshes.")
+    st.caption("Live from Google Sheets (CSV). This app auto-refreshes.")
 
     c1, c2 = st.columns(2)
     c1.metric("Available questions", f"{total}")
@@ -336,7 +274,7 @@ def render_quiz():
     top_left, top_right = st.columns([2, 1])
     with top_left:
         st.progress((current - 1) / max(total, 1))
-        st.caption(f"Question {current} of {total} • Mode: {st.session_state.mode} • Source: {'Google Sheets (live)' if REMOTE_URL else 'Local file'}")
+        st.caption(f"Question {current} of {total} • Mode: {st.session_state.mode} • Source: Google Sheets (CSV)")
     with top_right:
         if st.button("🏠 Home", use_container_width=True):
             go_home()
@@ -476,3 +414,4 @@ elif st.session_state.screen == "quiz":
     render_quiz()
 elif st.session_state.screen == "results":
     render_results()
+
