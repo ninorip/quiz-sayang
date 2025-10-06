@@ -299,13 +299,13 @@ def render_quiz():
             st.session_state.submitted[gid] = True
             correct_letter = st.session_state.correct_map.get(gid, "")
             if correct_letter and chosen_letter == correct_letter:
-                st.success(f"✅ Hebat Sayang! Kamu pinter banget, jawaban kamu benar {chosen_letter}")
+                st.success(f"✅ Hebat! Kamu pinter banget, jawaban kamu benar {chosen_letter}")
                 if gid not in st.session_state.scored:
                     st.session_state.score += 1
                     st.session_state.scored.add(gid)
             else:
                 if correct_letter in {"A", "B", "C", "D"}:
-                    st.error(f"❌ Gapapa Sayang! Ayo coba lagi, jawaban yang benar {correct_letter}")
+                    st.error(f"❌ Gapapa! Ayo coba lagi, jawaban yang benar {correct_letter}")
                 else:
                     st.info("ℹ️ Kunci jawaban belum tersedia untuk soal ini.")
         else:
